@@ -1,0 +1,35 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PHP / Composer
+/app/vendor/
+/app/runtime/*
+!/app/runtime/.gitkeep
+/app/composer.lock
+
+# Go binaries
+/src-go/bin/
+/src-go/worker
+
+# Ignore Go binary inside src-go
+src-go/app
+src-go/worker
+src-go/main
+src-go/*.exe
+src-go/*.out
+
+# Mac / Linux execution files
+*.so
+*.dylib
+*.dll
+
+# Environment & logs
+.env
+*.log

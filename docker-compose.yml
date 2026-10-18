@@ -1,0 +1,136 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.12-management-alpine
+    container_name: ec_rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    networks:
+      - ec_network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mongodb:
+    image: mongo:6.0
+    container_name: ec_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - ec_network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  mysql:
+    image: mysql:8.0
+    container_name: ec_mysql
+    restart: always
+    environment:
+      MYSQL_DATABASE: app
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ec_network
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+      image: redis:7-alpine
+      container_name: ec_redis
+      ports:
+        - "6379:6379"
+      networks:
+        - ec_network
+      healthcheck:
+        test: ["CMD", "redis-cli", "ping"]
+        interval: 5s
+        timeout: 3s
+        retries: 5
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ec_mailhog
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI port
+    networks:
+      - ec_network
+
+  php-app:
+    build:
+      context: ./docker/php
+      dockerfile: Dockerfile
+    container_name: ec_php_app
+    volumes:
+      - ./app:/app
+    working_dir: /app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ec_network
+    command: tail -f /dev/null
+
+  go-worker:
+    build:
+      context: ./docker/go
+      dockerfile: Dockerfile
+    container_name: ec_go_worker
+    volumes:
+      - ./src-go:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ec_network
+    command: tail -f /dev/null
+
+  python-bench:
+    build:
+      context: ./docker/python
+      dockerfile: Dockerfile
+    container_name: ec_python_bench
+    volumes:
+      - ./src-python:/app
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ec_network
+    command: tail -f /dev/null
+
+volumes:
+  mongo_data:
+  mysql_data:
+
+networks:
+  ec_network:
+    driver: bridge

@@ -1,0 +1,38 @@
+{
+  "name": "project/email-campaign",
+  "description": "Email campaign system with Yii2 components",
+  "require": {
+    "php": "^8.2",
+    "yidas/yii2-bower-asset": "^2.0",
+    "yiisoft/yii2": "^2.0.54",
+    "yiisoft/yii2-mongodb": "^2.1",
+    "yiisoft/yii2-symfonymailer": "^2.0",
+    "yiisoft/yii2-redis": "^2.0",
+    "php-amqplib/php-amqplib": "^3.5",
+    "fakerphp/faker": "^1.23",
+    "monolog/monolog": "^3.0",
+    "ext-redis": "*",
+    "ext-mongodb": "*",
+    "ext-sockets": "*",
+    "ext-pdo": "*",
+    "ext-pdo_mysql": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "app\\": ""
+    }
+  },
+  "scripts": {
+    "post-install-cmd": [
+      "php yii migrate --interactive=0"
+    ],
+    "post-update-cmd": [
+      "php yii migrate --interactive=0"
+    ]
+  },
+  "config": {
+    "allow-plugins": {
+      "yiisoft/yii2-composer": true
+    }
+  }
+}
