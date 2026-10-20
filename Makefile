@@ -1,4 +1,4 @@
-.PHONY: up down build logs bash seed clean send migrate ci composer-install config-show config-set go-init go-deps go-build go-worker-listen python-worker-listen report
+.PHONY: up down build logs bash seed clean send migrate ci composer-install config-show config-set go-init go-deps go-build go-worker-listen python-worker-listen php-fiber-worker-listen dotnet-worker-listen report
 
 help:
 	@printf "\033[33mUsage:\033[0m\n  make [target] [arg=\"val\"...]\n\n\033[33mTargets:\033[0m\n"
@@ -61,6 +61,13 @@ go-worker-listen: ## Listen queue
 
 python-worker-listen: ## Listen queue with async python3+
 	docker compose exec python-bench python main.py
+
+php-fiber-worker-listen: ## Listen queue with php fiber
+	docker compose run --rm worker-php-fiber composer install --no-dev --ignore-platform-req=ext-mongodb
+	docker compose run --rm worker-php-fiber php worker-fiber.php
+
+dotnet-worker-listen: ## Listen queue with C# fiber
+	docker compose run --rm worker-dotnet dotnet run --project Worker.csproj
 
 report: ## Build simple report
 	docker compose exec python-bench python generate_report.py

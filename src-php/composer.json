@@ -1,0 +1,10 @@
+{
+  "require": {
+    "php": "^8.3",
+    "php-amqplib/php-amqplib": "^3.0",
+    "amphp/mysql": "^2.0",
+    "mongodb/mongodb": "^1.19",
+    "amphp/socket": "^1.2",
+    "revolt/event-loop": "^1.0"
+  }
+}

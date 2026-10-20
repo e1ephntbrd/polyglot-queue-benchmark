@@ -1,8 +1,11 @@
 """Benchmark Data Processor and Master Dashboard Generator.
 
-This script fetches execution metrics from MongoDB, aggregates latency
-and throughput data, and generates a structured 2x2 master analytics dashboard
-combining global multi-worker comparison with a dedicated Python vs Go bottom duel.
+This script fetches execution metrics from MongoDB and generates a structured
+3x2 master analytics dashboard with auto-scaling, logarithmic latency axes,
+and non-overlapping labels:
+- Row 0: Global Overview (All workers including legacy/sync PHP)
+- Row 1: Async/Parallel Core Comparison (Python, Go, PHP Fiber, .NET)
+- Row 2: Async Queue Race Dynamics & Scaled Average Latency (Log Scale)
 """
 
 from typing import Dict, Any, List
@@ -31,23 +34,21 @@ plt.rcParams.update({
 })
 
 MONGO_URI: str = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
+
 PALETTE: Dict[str, str] = {
-    "go-worker": "#00ffcc",         # Neon cyan (Go turbo)
+    "go-worker": "#00ffcc",         # Neon cyan (Go)
     "python-worker": "#3399ff",     # Vibrant blue (Python async)
-    "php-worker": "#ff3366",        # Neon pink/red (PHP sync)
-    "php-yii2-worker": "#ff3366"    # Alias matching actual DB worker name
+    "php-worker": "#ff3366",        # Neon pink (PHP sync/legacy)
+    "php-yii2-worker": "#ff3366",   # Alias PHP
+    "php-fiber-worker": "#ff9900",  # Neon orange (PHP Fiber / Revolt)
+    "dotnet-worker": "#9933ff"      # Cyber purple (.NET C#)
 }
+
+ASYNC_WORKERS = ['python-worker', 'go-worker', 'php-fiber-worker', 'dotnet-worker']
 
 
 def fetch_metrics(mongo_uri: str) -> pd.DataFrame:
-    """Fetch successful execution metrics from MongoDB and return as a DataFrame.
-
-    Args:
-        mongo_uri (str): Connection URI for MongoDB.
-
-    Returns:
-        pd.DataFrame: DataFrame containing raw execution records.
-    """
+    """Fetch successful execution metrics from MongoDB and return as a DataFrame."""
     client: MongoClient = MongoClient(mongo_uri)
     db = client.app
     collection = db.benchmark_metrics
@@ -58,40 +59,34 @@ def fetch_metrics(mongo_uri: str) -> pd.DataFrame:
 
     df: pd.DataFrame = pd.DataFrame(data)
     df['duration_sec'] = df['duration_ms'] / 1000.0
+    df['timestamp'] = pd.to_datetime(df['timestamp'])
     return df
 
 
 def generate_master_dashboard(df: pd.DataFrame, output_path: str = "reports/benchmark_master_dashboard.png") -> None:
-    """Generate and save a balanced 2x2 master analytics dashboard.
-
-    Top row: Global comparison (Latency & Global Throughput).
-    Bottom row: Two dedicated columns comparing Python and Go side-by-side.
-
-    Args:
-        df (pd.DataFrame): Processed benchmark metrics.
-        output_path (str): Destination file path for the master dashboard.
-    """
-    fig = plt.figure(figsize=(15, 11), facecolor='#0b0f19')
-    gs = fig.add_gridspec(2, 2, hspace=0.38, wspace=0.28)
+    """Generate and save an optimized 3x2 master analytics dashboard."""
+    fig = plt.figure(figsize=(16, 17), facecolor='#0b0f19')
+    gs = fig.add_gridspec(3, 2, hspace=0.42, wspace=0.28)
     panel_bg: str = '#111827'
 
-    # ==========================================
-    # ROW 0, COL 0: Global Latency Distribution
-    # ==========================================
+    # =========================================================================
+    # ROW 0, COL 0: Global Latency Distribution (ALL Workers)
+    # =========================================================================
     ax1 = fig.add_subplot(gs[0, 0], facecolor=panel_bg)
     sns.boxplot(
         data=df, x='worker', y='duration_sec',
         hue='worker', palette=PALETTE, width=0.4, ax=ax1,
         boxprops=dict(alpha=0.8), fliersize=2, legend=False
     )
-    ax1.set_title('⚡ Global Task Latency Spread (All Workers)', fontweight='bold', color='#ffffff')
+    ax1.set_title('🌐 Global Task Latency Spread (All Workers)', fontweight='bold', color='#ffffff', pad=12)
     ax1.set_ylabel('Duration (Seconds)')
     ax1.set_xlabel('Worker Implementation')
+    ax1.tick_params(axis='x', rotation=15)
     ax1.grid(True)
 
-    # ==========================================
-    # ROW 0, COL 1: Global System Throughput
-    # ==========================================
+    # =========================================================================
+    # ROW 0, COL 1: Global System Throughput (ALL Workers)
+    # =========================================================================
     ax2 = fig.add_subplot(gs[0, 1], facecolor=panel_bg)
 
     global_summary = df.groupby('worker').agg(
@@ -109,10 +104,14 @@ def generate_master_dashboard(df: pd.DataFrame, output_path: str = "reports/benc
         color=global_colors, width=0.4, alpha=0.85
     )
 
-    ax2.set_title('🚀 Global System Throughput (IDs / Second)', fontweight='bold', color='#ffffff')
+    ax2.set_title('🚀 Global Throughput (All Workers)', fontweight='bold', color='#ffffff', pad=12)
     ax2.set_ylabel('IDs per Second')
     ax2.set_xlabel('Worker Implementation')
+    ax2.tick_params(axis='x', rotation=15)
     ax2.grid(axis='y')
+
+    max_global_tp = global_summary['throughput_ids'].max()
+    ax2.set_ylim(0, max_global_tp * 1.18)
 
     for bar in bars_global:
         height = bar.get_height()
@@ -123,53 +122,55 @@ def generate_master_dashboard(df: pd.DataFrame, output_path: str = "reports/benc
             ha='center', va='bottom', fontweight='bold', color='#00ffcc'
         )
 
-    # Filter dataframe for Python and Go specific bottom row
-    zoom_df = df[df['worker'].isin(['python-worker', 'go-worker'])].copy()
+    # Фільтруємо датафрейм виключно для асинхронних воркерів
+    async_df = df[df['worker'].isin(ASYNC_WORKERS)].copy()
 
-    # ==========================================
-    # ROW 1, COL 0: Python vs Go Execution Race
-    # ==========================================
+    # =========================================================================
+    # ROW 1, COL 0: Latency Distribution (ONLY Async/Parallel Workers)
+    # =========================================================================
     ax3 = fig.add_subplot(gs[1, 0], facecolor=panel_bg)
-    if not zoom_df.empty:
-        for worker, group in zoom_df.groupby('worker'):
-            group_sorted = group.sort_values('timestamp')
-            start_t = group_sorted['timestamp'].min()
-            group_sorted['rel_time'] = (group_sorted['timestamp'] - start_t).dt.total_seconds()
-            color = PALETTE.get(worker, '#ffffff')
-            ax3.plot(group_sorted['rel_time'], range(len(group_sorted)), label=worker, color=color, linewidth=2.5)
-
-    ax3.set_title('🏁 Python vs Go: Queue Progress Race', fontweight='bold', color='#ffffff')
-    ax3.set_ylabel('Processed Tasks Count')
-    ax3.set_xlabel('Elapsed Time from Start (Seconds)')
-    ax3.legend(facecolor='#0b0f19', edgecolor='none')
+    if not async_df.empty:
+        sns.boxplot(
+            data=async_df, x='worker', y='duration_sec',
+            hue='worker', palette=PALETTE, width=0.4, ax=ax3,
+            boxprops=dict(alpha=0.8), fliersize=2, legend=False
+        )
+    ax3.set_title('⚡ High-Speed Latency Spread (Async Group Only)', fontweight='bold', color='#ffffff', pad=12)
+    ax3.set_ylabel('Duration (Seconds)')
+    ax3.set_xlabel('Async Worker Implementation')
+    ax3.tick_params(axis='x', rotation=15)
     ax3.grid(True)
 
-    # ==========================================
-    # ROW 1, COL 1: Python vs Go Focused Throughput
-    # ==========================================
+    # =========================================================================
+    # ROW 1, COL 1: Direct Throughput Comparison (ONLY Async Workers)
+    # =========================================================================
     ax4 = fig.add_subplot(gs[1, 1], facecolor=panel_bg)
-    if not zoom_df.empty:
-        zoom_summary = zoom_df.groupby('worker').agg(
+    if not async_df.empty:
+        async_summary = async_df.groupby('worker').agg(
             total_tasks=('message_id', 'count'),
             first_start=('timestamp', 'min'),
             last_end=('timestamp', 'max')
         ).reset_index()
 
-        zoom_summary['wall_time'] = (zoom_summary['last_end'] - zoom_summary['first_start']).dt.total_seconds().replace(0, 0.001)
-        zoom_summary['throughput_ids'] = (zoom_summary['total_tasks'] * 2500) / zoom_summary['wall_time']
+        async_summary['wall_time'] = (async_summary['last_end'] - async_summary['first_start']).dt.total_seconds().replace(0, 0.001)
+        async_summary['throughput_ids'] = (async_summary['total_tasks'] * 2500) / async_summary['wall_time']
 
-        zoom_colors = [PALETTE.get(w, '#ffffff') for w in zoom_summary['worker']]
-        bars_zoom = ax4.bar(
-            zoom_summary['worker'], zoom_summary['throughput_ids'],
-            color=zoom_colors, width=0.35, alpha=0.85
+        async_colors = [PALETTE.get(w, '#ffffff') for w in async_summary['worker']]
+        bars_async = ax4.bar(
+            async_summary['worker'], async_summary['throughput_ids'],
+            color=async_colors, width=0.4, alpha=0.85
         )
 
-        ax4.set_title('⚡ High-Speed Duel: Python vs Go Throughput', fontweight='bold', color='#ffffff')
-        ax4.set_ylabel('IDs / Second (Zoomed Scale)')
-        ax4.set_xlabel('Worker Implementation')
+        ax4.set_title('⚡ High-Speed Throughput Duel (Async Group Only)', fontweight='bold', color='#ffffff', pad=12)
+        ax4.set_ylabel('IDs / Second')
+        ax4.set_xlabel('Async Worker Implementation')
+        ax4.tick_params(axis='x', rotation=15)
         ax4.grid(axis='y')
 
-        for bar in bars_zoom:
+        max_async_tp = async_summary['throughput_ids'].max()
+        ax4.set_ylim(0, max_async_tp * 1.18)
+
+        for bar in bars_async:
             height = bar.get_height()
             ax4.annotate(
                 f'{height:.0f} ID/s',
@@ -178,7 +179,56 @@ def generate_master_dashboard(df: pd.DataFrame, output_path: str = "reports/benc
                 ha='center', va='bottom', fontweight='bold', color='#00ffcc'
             )
 
-    plt.suptitle('SYSTEM BENCHMARK MASTER MATRIX // Global Context & High-Speed Duel', fontsize=17, fontweight='bold', color='#ffffff', y=0.97)
+    # =========================================================================
+    # ROW 2, COL 0: Execution Progress Race (ONLY Async Workers)
+    # =========================================================================
+    ax5 = fig.add_subplot(gs[2, 0], facecolor=panel_bg)
+    if not async_df.empty:
+        for worker, group in async_df.groupby('worker'):
+            group_sorted = group.sort_values('timestamp')
+            start_t = group_sorted['timestamp'].min()
+            group_sorted['rel_time'] = (group_sorted['timestamp'] - start_t).dt.total_seconds()
+            color = PALETTE.get(worker, '#ffffff')
+            ax5.plot(group_sorted['rel_time'], range(len(group_sorted)), label=worker, color=color, linewidth=2.5)
+
+    ax5.set_title('🏁 Async Queue Progress Race (Timeline)', fontweight='bold', color='#ffffff', pad=12)
+    ax5.set_ylabel('Processed Tasks Count')
+    ax5.set_xlabel('Elapsed Time from Start (Seconds)')
+    ax5.legend(facecolor='#0b0f19', edgecolor='none')
+    ax5.grid(True)
+
+    # =========================================================================
+    # ROW 2, COL 1: Avg Message Processing Time (Log Scale for Fair View)
+    # =========================================================================
+    ax6 = fig.add_subplot(gs[2, 1], facecolor=panel_bg)
+    if not async_df.empty:
+        avg_duration = async_df.groupby('worker')['duration_ms'].mean().reset_index()
+        avg_colors = [PALETTE.get(w, '#ffffff') for w in avg_duration['worker']]
+        bars_avg = ax6.bar(
+            avg_duration['worker'], avg_duration['duration_ms'],
+            color=avg_colors, width=0.4, alpha=0.85
+        )
+
+        ax6.set_yscale('log')  # Логарифмічна шкала для наочності розриву
+        ax6.set_title('⏱️ Avg Message Processing Time (Log Scale, Lower is Better)', fontweight='bold', color='#ffffff', pad=12)
+        ax6.set_ylabel('Duration (ms, Log Scale)')
+        ax6.set_xlabel('Async Worker Implementation')
+        ax6.tick_params(axis='x', rotation=15)
+        ax6.grid(True, which="both", ls="--", alpha=0.3)
+
+        max_avg_dur = avg_duration['duration_ms'].max()
+        ax6.set_ylim(bottom=100, top=max_avg_dur * 3.5)
+
+        for bar in bars_avg:
+            height = bar.get_height()
+            ax6.annotate(
+                f'{height:.1f} ms',
+                xy=(bar.get_x() + bar.get_width() / 2, height),
+                xytext=(0, 6), textcoords="offset points",
+                ha='center', va='bottom', fontweight='bold', color='#00ffcc'
+            )
+
+    plt.suptitle('SYSTEM BENCHMARK MASTER MATRIX // Global vs Async Core Performance', fontsize=18, fontweight='bold', color='#ffffff', y=0.995)
 
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=300, facecolor=fig.get_facecolor(), edgecolor='none')
@@ -192,3 +242,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[ERROR] Failed to generate benchmark report: {e}")
         exit(1)
+

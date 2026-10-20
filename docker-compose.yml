@@ -127,6 +127,52 @@ services:
       - ec_network
     command: tail -f /dev/null
 
+  worker-php-fiber:
+    build:
+      context: .
+      dockerfile: docker/php-fiber/Dockerfile
+    container_name: ec_php_bench
+    volumes:
+      - ./src-php:/app
+    environment:
+      - RABBIT_URL=amqp://guest:guest@rabbitmq:5672/
+      - MYSQL_HOST=mysql
+      - MONGO_URI=mongodb://mongodb:27017
+      - MAILHOG_HOST=mailhog
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ec_network
+    command: sleep infinity
+
+  worker-dotnet:
+    build:
+      context: .
+      dockerfile: docker/dotnet/Dockerfile
+    container_name: ec_dotnet_bench
+    volumes:
+      - ./src-dotnet:/app
+    environment:
+      - RABBIT_URL=amqp://guest:guest@rabbitmq:5672/
+      - MYSQL_HOST=mysql
+      - MONGO_URI=mongodb://mongodb:27017
+      - MAILHOG_HOST=mailhog
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    networks:
+      - ec_network
+    command: tail -f /dev/null
+
 volumes:
   mongo_data:
   mysql_data:
