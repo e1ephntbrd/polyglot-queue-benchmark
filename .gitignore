@@ -13,6 +13,8 @@ Thumbs.db
 /app/runtime/*
 !/app/runtime/.gitkeep
 /app/composer.lock
+/src-php/vendor/
+/src-php/composer.lock
 
 # Go binaries
 /src-go/bin/
@@ -24,6 +26,11 @@ src-go/worker
 src-go/main
 src-go/*.exe
 src-go/*.out
+
+# --- C# / .NET ---
+/src-dotnet/bin/
+/src-dotnet/obj/
+/src-dotnet/Worker/
 
 # Mac / Linux execution files
 *.so
